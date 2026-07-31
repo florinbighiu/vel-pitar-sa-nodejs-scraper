@@ -3,6 +3,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import companyConfig from "../../scraper/config/company.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.GITHUB_REPOSITORY;
 const TOKEN = process.env.GITHUB_TOKEN;
@@ -76,7 +78,7 @@ describe("Repository Configuration", () => {
       const html = await res.text();
       expect(html).toContain("<!DOCTYPE html>");
       expect(html).toContain("peviitor");
-      expect(html).toContain("EPAM");
+      expect(html.toLowerCase()).toContain(companyConfig.brand.toLowerCase());
       console.log(`✅ GitHub Pages HTML loaded from ${pagesUrl}`);
     });
   });

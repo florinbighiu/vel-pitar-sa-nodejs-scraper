@@ -1,12 +1,12 @@
 {
-  "id": "33159615",
-  "company": "EPAM SYSTEMS INTERNATIONAL SRL",
-  "brand": "EPAM",
+  "id": "21229091",
+  "company": "VEL PITAR SA",
+  "brand": "Vel Pitar",
   "status": "activ",
-  "location": ["București"],
-  "website": ["https://www.epam.com"],
-  "career": ["https://careers.epam.com"],
-  "apiBase": "https://careers.epam.com",
-  "apiCountryId": "8150000000000001155",
-  "scraperFile": "https://github.com/sebiboga/epam-systems-international-srl-nodejs-scraper/actions/workflows/job-seeker-ro-spider.yml"
+  "location": ["Râmnicu Vâlcea"],
+  "website": ["https://www.velpitar.ro"],
+  "career": ["https://velpitar.ro/cariere-vel-pitar/"],
+  "apiBase": "https://velpitar.ro",
+  "apiCareerCategoryId": 211,
+  "scraperFile": "https://github.com/florinbighiu/vel-pitar-sa-nodejs-scraper/actions/workflows/job-seeker-ro-spider.yml"
 }

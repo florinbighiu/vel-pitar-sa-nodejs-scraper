@@ -9,10 +9,23 @@ import scraperConfig from "./config/scraper.js";
 
 const COMPANY_CIF = companyConfig.id;
 const JOB_BASE = scraperConfig.apiBase;
-const ROMANIA_COUNTRY_ID = scraperConfig.apiCountryId;
+const CAREER_CATEGORY_ID = scraperConfig.apiCareerCategoryId;
 
 const TIMEOUT = 10000;
 const PAGE_SIZE = 10;
+
+const CITY_CATEGORY_SLUG_TO_CITY = {
+  'brasov': 'Brașov',
+  'bucuresti': 'București',
+  'bucuresti-libertatea': 'București',
+  'chitila': 'Chitila',
+  'cluj': 'Cluj-Napoca',
+  'giurgiu': 'Giurgiu',
+  'iasi': 'Iași',
+  'oradea': 'Oradea',
+  'pitesti': 'Pitești',
+  'valcea': 'Râmnicu Vâlcea'
+};
 
 let COMPANY_NAME = null;
 
@@ -59,9 +72,42 @@ async function searchANOFM(cif) {
   return jobs;
 }
 
+function decodeEntities(str) {
+  return str
+    .replace(/&#(\d+);/g, (m, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (m, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#039;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function cleanTitle(rendered) {
+  if (!rendered) return '';
+  return decodeEntities(rendered.replace(/<[^>]*>/g, '')).trim();
+}
+
+async function fetchCategories() {
+  const url = `${JOB_BASE}/wp-json/wp/v2/categories?per_page=100&_fields=id,name,slug&hide_empty=false`;
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "job_seeker_ro_spider",
+      "Accept": "application/json"
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Categories API error ${res.status}`);
+  }
+
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
 async function fetchJobsPage(pageNum) {
-  const from = (pageNum - 1) * PAGE_SIZE;
-  const url = `${JOB_BASE}/api/jobs/v2/search/careers-i18n?from=${from}&lang=en&size=${PAGE_SIZE}&sortBy=relevance%3Brelocation%3Dasc&websiteLocale=en-us&facets=country%3D${ROMANIA_COUNTRY_ID}`;
+  const url = `${JOB_BASE}/wp-json/wp/v2/posts?categories=${CAREER_CATEGORY_ID}&per_page=${PAGE_SIZE}&page=${pageNum}&_fields=id,link,title,categories`;
 
   const res = await fetch(url, {
     headers: {
@@ -74,40 +120,41 @@ async function fetchJobsPage(pageNum) {
     throw new Error(`API error ${res.status} for page=${pageNum}`);
   }
 
-  return await res.json();
-}
-
-function parseApiJobs(apiData) {
-  const jobs = apiData.data?.jobs || [];
-  const total = apiData.data?.total || 0;
+  const data = await res.json();
+  const total = parseInt(res.headers.get("x-wp-total") || "0", 10);
 
   return {
-    jobs: jobs.map(job => {
-      const vacancyType = job.vacancy_type || "Hybrid";
-      let workmode = "hybrid";
-      if (vacancyType.toLowerCase().includes("remote")) workmode = "remote";
-      else if (vacancyType.toLowerCase().includes("office")) workmode = "on-site";
+    posts: Array.isArray(data) ? data : [],
+    total
+  };
+}
 
-      const location = [];
-      if (job.city && job.city.length > 0) {
-        for (const c of job.city) {
-          if (c.name) location.push(c.name);
-        }
-      } else if (job.country?.[0]?.name) {
-        location.push(job.country[0].name);
-      }
+function parseApiJobs(apiData, categories = []) {
+  const posts = apiData.posts || [];
+  const total = apiData.total || 0;
 
-      const uid = job.uid || "";
-      const seoUrl = job.seo?.url || `/en/vacancy/${uid}_en`;
-      const url = seoUrl.startsWith('http') ? seoUrl : `${JOB_BASE}${seoUrl}`;
+  const slugById = new Map(categories.map(c => [c.id, c.slug]));
 
-      const tags = (job.skills || []).map(s => s.toLowerCase());
+  return {
+    jobs: posts.map(post => {
+      const postCategories = post.categories || [];
+
+      const location = [...new Set(
+        postCategories
+          .map(id => CITY_CATEGORY_SLUG_TO_CITY[slugById.get(id)])
+          .filter(Boolean)
+      )];
+
+      const tags = [...new Set(
+        postCategories
+          .map(id => slugById.get(id))
+          .filter(slug => slug && slug !== "cariere" && slug !== "fara-categorie")
+      )];
 
       return {
-        url,
-        title: job.name,
-        uid: job.uid,
-        workmode,
+        url: post.link,
+        title: cleanTitle(post.title?.rendered),
+        uid: String(post.id),
         location,
         tags
       };
@@ -123,10 +170,13 @@ async function scrapeAllListings(testOnlyOnePage = false) {
   let totalJobs = 0;
   const MAX_PAGES = 10;
 
+  console.log("Fetching WordPress categories for location mapping...");
+  const categories = await fetchCategories();
+
   while (true) {
     console.log(`Fetching API page: ${page}`);
     const data = await fetchJobsPage(page);
-    const result = parseApiJobs(data);
+    const result = parseApiJobs(data, categories);
     const jobs = result.jobs;
 
     if (!jobs.length) {
@@ -279,7 +329,7 @@ async function main() {
 
     const rawJobs = await scrapeAllListings(testOnlyOnePage);
     const scrapedCount = rawJobs.length;
-    console.log(`Jobs scraped from EPAM Careers website: ${scrapedCount}`);
+    console.log(`Jobs scraped from ${companyConfig.brand} website: ${scrapedCount}`);
 
     if (!testOnlyOnePage) {
       const anofmJobs = await searchANOFM(cif);
@@ -295,7 +345,7 @@ async function main() {
     const jobs = rawJobs.map(job => mapToJobModel(job, cif));
 
     const payload = {
-      source: "epam.com",
+      source: "velpitar.ro",
       scrapedAt: new Date().toISOString(),
       company: COMPANY_NAME,
       cif: cif,
@@ -357,7 +407,7 @@ async function main() {
     const finalResult = await querySOLR(COMPANY_CIF);
     console.log(`\n=== SUMMARY ===`);
     console.log(`Jobs existing in SOLR before scrape: ${existingCount}`);
-    console.log(`Jobs scraped from EPAM website: ${scrapedCount}`);
+    console.log(`Jobs scraped from ${companyConfig.brand} website: ${scrapedCount}`);
     console.log(`Stale jobs attempted: ${staleUrls.length}`);
     console.log(`Jobs in SOLR after scrape: ${finalResult.numFound}`);
     console.log(`====================`);

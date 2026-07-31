@@ -1,14 +1,20 @@
 import { jest } from '@jest/globals';
 import fetch from 'node-fetch';
 
+import companyConfig from '../../scraper/config/company.js';
+const TEST_CIF = companyConfig.id;
+const TEST_BRAND = companyConfig.brand;
+const COMPANY_NAME = companyConfig.company;
+
 const API_BASE = 'https://api.peviitor.ro/v1';
-const EPAM_CIF = '33159615';
+const CAREER_CATEGORY_ID = '211';
+const VEL_PITAR_API_URL = `https://velpitar.ro/wp-json/wp/v2/posts?categories=${CAREER_CATEGORY_ID}&per_page=5&_fields=id,link,title,categories`;
 
 let HAS_API = false;
 
 async function checkApiAvailability() {
   try {
-    const res = await fetch(`${API_BASE}/scraper/jobs/?cif=${EPAM_CIF}&rows=1`, {
+    const res = await fetch(`${API_BASE}/scraper/jobs/?cif=${TEST_CIF}&rows=1`, {
       signal: AbortSignal.timeout(5000)
     });
     return res.ok || res.status === 400;
@@ -45,11 +51,15 @@ function itIfAnaf(name, fn, timeout) {
   return it.skip(`${name} (skipped: ANAF API unavailable)`, fn, timeout);
 }
 
-import companyConfig from '../../scraper/config/company.js';
-const TEST_CIF = companyConfig.id;
-const TEST_BRAND = companyConfig.brand;
-const COMPANY_NAME = companyConfig.company;
-const EPAM_API_URL = 'https://careers.epam.com/api/jobs/v2/search/careers-i18n?from=0&lang=en&size=5&sortBy=relevance%3Brelocation%3Dasc&websiteLocale=en-us&facets=country%3D8150000000000001155';
+async function fetchCategories() {
+  const res = await fetch('https://velpitar.ro/wp-json/wp/v2/categories?per_page=100&_fields=id,name,slug&hide_empty=false', {
+    headers: {
+      'User-Agent': 'job_seeker_ro_spider',
+      'Accept': 'application/json'
+    }
+  });
+  return await res.json();
+}
 
 beforeAll(async () => {
   [HAS_API, HAS_ANAF] = await Promise.all([checkApiAvailability(), checkAnafAvailability()]);
@@ -57,61 +67,60 @@ beforeAll(async () => {
 
 describe('E2E: Full Scraping Pipeline', () => {
 
-  describe('EPAM Careers API — Real Data Fetch', () => {
+  describe('VEL PITAR WordPress REST API — Real Data Fetch', () => {
     let apiData;
 
     beforeAll(async () => {
-      const res = await fetch(EPAM_API_URL, {
+      const res = await fetch(VEL_PITAR_API_URL, {
         headers: {
           'User-Agent': 'job_seeker_ro_spider',
           'Accept': 'application/json'
         }
       });
       apiData = await res.json();
-    }, 15000);
+    }, 60000);
 
-    it('should respond with valid job data from EPAM API', () => {
-      expect(apiData.data).toHaveProperty('jobs');
-      expect(Array.isArray(apiData.data.jobs)).toBe(true);
-      expect(apiData.data.jobs.length).toBeGreaterThan(0);
-      expect(apiData.data).toHaveProperty('total');
-      expect(typeof apiData.data.total).toBe('number');
+    it('should respond with valid job data from VEL PITAR WP API', () => {
+      expect(Array.isArray(apiData)).toBe(true);
+      expect(apiData.length).toBeGreaterThan(0);
     }, 10000);
 
-    it('should have Romania jobs with expected fields', () => {
-      const job = apiData.data.jobs[0];
-      expect(job).toHaveProperty('uid');
-      expect(job).toHaveProperty('name');
-      expect(typeof job.name).toBe('string');
-      expect(job).toHaveProperty('city');
+    it('should have job posts with expected fields', () => {
+      const post = apiData[0];
+      expect(post).toHaveProperty('id');
+      expect(post).toHaveProperty('link');
+      expect(post).toHaveProperty('title');
+      expect(post.title).toHaveProperty('rendered');
+      expect(post).toHaveProperty('categories');
+      expect(Array.isArray(post.categories)).toBe(true);
     });
 
-    it('should have Romanian country on at least one job', () => {
-      const allCountries = apiData.data.jobs.flatMap(j =>
-        (j.country || []).map(c => c.name?.toLowerCase())
-      );
-      expect(allCountries.length).toBeGreaterThan(0);
-      expect(allCountries.some(c => c === 'romania')).toBe(true);
+    it('should have links on the velpitar.ro domain', () => {
+      for (const post of apiData) {
+        expect(post.link).toMatch(/^https:\/\/velpitar\.ro\//);
+      }
     });
   });
 
   describe('Parse + Transform Pipeline', () => {
     let index;
     let apiData;
+    let categories;
 
     beforeAll(async () => {
       index = await import('../../scraper/index.js');
-      const res = await fetch(EPAM_API_URL, {
+      categories = await fetchCategories();
+      const res = await fetch(VEL_PITAR_API_URL, {
         headers: {
           'User-Agent': 'job_seeker_ro_spider',
           'Accept': 'application/json'
         }
       });
       apiData = await res.json();
-    }, 15000);
+    }, 60000);
 
-    it('should parse real EPAM API response into standardized format', () => {
-      const result = index.parseApiJobs(apiData);
+    it('should parse real VEL PITAR API response into standardized format', () => {
+      const result = index.parseApiJobs({ posts: apiData, total: apiData.length }, categories);
 
       expect(result).toHaveProperty('jobs');
       expect(result).toHaveProperty('total');
@@ -120,17 +129,17 @@ describe('E2E: Full Scraping Pipeline', () => {
 
       const parsed = result.jobs[0];
       expect(parsed).toHaveProperty('url');
-      expect(parsed.url).toMatch(/^https:\/\/careers\.epam\.com\//);
+      expect(parsed.url).toMatch(/^https:\/\/velpitar\.ro\//);
       expect(parsed).toHaveProperty('title');
-      expect(parsed).toHaveProperty('workmode');
-      expect(['remote', 'on-site', 'hybrid']).toContain(parsed.workmode);
+      expect(typeof parsed.title).toBe('string');
+      expect(parsed.title.length).toBeGreaterThan(0);
       expect(parsed).toHaveProperty('location');
       expect(Array.isArray(parsed.location)).toBe(true);
       expect(parsed).toHaveProperty('tags');
     });
 
     it('should map parsed jobs to job model', () => {
-      const parsed = index.parseApiJobs(apiData);
+      const parsed = index.parseApiJobs({ posts: apiData, total: apiData.length }, categories);
       const model = index.mapToJobModel(parsed.jobs[0], TEST_CIF);
 
       expect(model).toHaveProperty('url');
@@ -139,15 +148,15 @@ describe('E2E: Full Scraping Pipeline', () => {
       expect(model).toHaveProperty('cif', TEST_CIF);
       expect(model).toHaveProperty('status', 'scraped');
       expect(model).toHaveProperty('date');
-      expect(model.url).toMatch(/^https:\/\/careers\.epam\.com\//);
+      expect(model.url).toMatch(/^https:\/\/velpitar\.ro\//);
     });
 
     it('should transform jobs and filter to Romanian locations', () => {
-      const parsed = index.parseApiJobs(apiData);
+      const parsed = index.parseApiJobs({ posts: apiData, total: apiData.length }, categories);
       const jobs = parsed.jobs.map(j => index.mapToJobModel(j, TEST_CIF));
 
       const payload = {
-        source: 'epam.com',
+        source: 'velpitar.ro',
         company: COMPANY_NAME,
         cif: TEST_CIF,
         jobs
@@ -162,12 +171,11 @@ describe('E2E: Full Scraping Pipeline', () => {
         expect(job).toHaveProperty('location');
         expect(Array.isArray(job.location)).toBe(true);
         expect(job.location.length).toBeGreaterThan(0);
-        expect(job.workmode).toMatch(/^(remote|on-site|hybrid)$/);
       }
     });
 
     it('should produce valid job URLs that are accessible', async () => {
-      const parsed = index.parseApiJobs(apiData);
+      const parsed = index.parseApiJobs({ posts: apiData, total: apiData.length }, categories);
 
       for (const job of parsed.jobs.slice(0, 2)) {
         const res = await fetch(job.url, {
@@ -188,15 +196,15 @@ describe('E2E: Full Scraping Pipeline', () => {
       company = await import('../../scraper/company.js');
     });
 
-    itIfAnaf('should find EPAM in ANAF and validate active status', async () => {
+    itIfAnaf('should find VEL PITAR in ANAF and validate active status', async () => {
       const results = await anaf.searchCompany(TEST_BRAND);
 
-      const epam = results.find(c =>
+      const velPitar = results.find(c =>
         c.cui.toString() === TEST_CIF &&
         c.statusLabel === 'Funcțiune'
       );
-      expect(epam).toBeDefined();
-      expect(epam.cui.toString()).toBe(TEST_CIF);
+      expect(velPitar).toBeDefined();
+      expect(velPitar.cui.toString()).toBe(TEST_CIF);
 
       const anafData = await anaf.getCompanyFromANAF(TEST_CIF);
       expect(anafData).toBeDefined();
@@ -211,7 +219,7 @@ describe('E2E: Full Scraping Pipeline', () => {
       expect(result.cif).toBe(TEST_CIF);
 
       if (result.existingJobsCount === 0) {
-        console.log('⚠️ No EPAM jobs in API — skipping job count assertion');
+        console.log('⚠️ No VEL PITAR jobs in API — skipping job count assertion');
         return;
       }
       expect(result.existingJobsCount).toBeGreaterThan(0);
@@ -251,11 +259,11 @@ describe('E2E: Full Scraping Pipeline', () => {
       api = await import('../../scraper/api.js');
     });
 
-    itIfApi('should have EPAM jobs in API with correct company name', async () => {
+    itIfApi('should have VEL PITAR jobs in API with correct company name', async () => {
       const result = await api.querySOLR(TEST_CIF);
 
       if (result.numFound === 0) {
-        console.log('⚠️ No EPAM jobs in API — skipping API data verification');
+        console.log('⚠️ No VEL PITAR jobs in API — skipping API data verification');
         return;
       }
 
@@ -265,7 +273,7 @@ describe('E2E: Full Scraping Pipeline', () => {
       }
     }, 15000);
 
-    itIfApi('should have EPAM company core entry with required fields', async () => {
+    itIfApi('should have VEL PITAR company core entry with required fields', async () => {
       const companyDoc = await api.getCompanyByCif(TEST_CIF);
 
       expect(companyDoc).toBeDefined();

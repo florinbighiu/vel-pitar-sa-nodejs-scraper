@@ -1,27 +1,39 @@
-# Robots.txt Analysis — EPAM Careers
+# Robots.txt Analysis — velpitar.ro (VEL PITAR SA)
 
-Sursa: https://careers.epam.com/robots.txt
+Sursa: https://velpitar.ro/robots.txt
 
 ## Reguli
 
 ```
 User-agent: *
-Disallow: /
+Allow: /
+Disallow: /cgi-bin/
 ```
 
 ## Interpretare
 
 | Cale | Accesibil? | Ce conține |
 |---|---|---|
-| `/` | ❌ Disallowed | Tot site-ul |
-| API (`/api/jobs/v2/...`) | ❌ Disallowed | API-ul JSON de la care scraper-ul extrage datele |
+| `/` | ✅ Allowed | Tot site-ul |
+| `/cgi-bin/` | ❌ Disallowed | Scripturi CGI (nefolosite de scraper) |
+| `/wp-json/wp/v2/posts` | ✅ Allowed | API-ul REST WordPress (sursa job-urilor) |
+| `/wp-json/wp/v2/categories` | ✅ Allowed | API-ul REST WordPress (mapare orașe) |
 
 ## Recomandare
 
 robots.txt NU este legal binding, dar reprezintă intenția proprietarului site-ului.
 
-- API-ul `/api/jobs/v2/search/...` e **disallowed** de robots.txt. În practică, serverul răspunde cu 200 OK cu `User-Agent` normal și fără autentificare.
-- Paginile individuale de job sunt și ele disallowed. Noi nu le scraper-uim direct — doar le verificăm accesibilitatea (HEAD request) în teste.
-- Scraperul curent face o singură cerere per pagină (10 job-uri) cu delay de 1s între pagini — comportament rezonabil, nu agresiv.
+- Site-ul este un WordPress care permite crawl-ul complet (`Allow: /`).
+- Scraperul folosește API-ul public WP REST (`/wp-json/`) — accesibil fără autentificare, acoperit de `Allow: /`.
+- Fiecare cerere folosește User-Agent-ul identificabil `job_seeker_ro_spider`.
+- Scraperul face 1 cerere per pagină (10 job-uri) cu delay de 1s între pagini — comportament rezonabil, nu agresiv.
 
-**Concluzie**: Risc minim. API-ul e public, răspunde fără autentificare, iar scraperul e politicos (rate limiting, User-Agent standard, o singură cerere simultană).
+## Diferență față de EPAM template
+
+| | EPAM (template) | VEL PITAR (derivat) |
+|---|---|---|
+| robots.txt | `Disallow: /` — API-ul disallowed, dar accesibil | `Allow: /` — totul permis |
+| Sursa job-uri | API SOLR (`/api/jobs/v2/...`) | WP REST (`/wp-json/wp/v2/posts?categories=211`) |
+| Riscul | Minim (site permite, dar robots dezaprobă explicit) | Scăzut (site-ul permite crawl explicit) |
+
+**Concluzie**: Risc scăzut. robots.txt permite explicit crawl-ul, API-ul WP REST e public, iar scraperul e politicos (rate limiting, User-Agent standard, o singură cerere simultană).

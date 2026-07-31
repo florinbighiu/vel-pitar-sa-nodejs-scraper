@@ -1,5 +1,5 @@
 /**
- * EPAM-Specific Job URL Validator
+ * Job URL Validator (VEL PITAR SA)
  *
  * Multiple validation modes:
  *   --head      HEAD requests only (fast, default)
