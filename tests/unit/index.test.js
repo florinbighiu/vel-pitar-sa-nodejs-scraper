@@ -1,5 +1,3 @@
-import { jest } from '@jest/globals';
-
 describe('index.js Component Tests', () => {
   let index;
 

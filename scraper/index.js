@@ -116,12 +116,16 @@ async function fetchJobsPage(pageNum) {
     }
   });
 
+  const total = parseInt(res.headers.get("x-wp-total") || "0", 10);
+
   if (!res.ok) {
+    if (res.status === 400) {
+      return { posts: [], total };
+    }
     throw new Error(`API error ${res.status} for page=${pageNum}`);
   }
 
   const data = await res.json();
-  const total = parseInt(res.headers.get("x-wp-total") || "0", 10);
 
   return {
     posts: Array.isArray(data) ? data : [],
@@ -211,6 +215,11 @@ async function scrapeAllListings(testOnlyOnePage = false) {
 
     if (newJobs === 0) {
       console.log(`No new jobs on page ${page}, stopping.`);
+      break;
+    }
+
+    if (allJobs.length >= totalJobs) {
+      console.log(`Collected all ${totalJobs} jobs, stopping.`);
       break;
     }
 
@@ -421,7 +430,7 @@ async function main() {
   }
 }
 
-export { parseApiJobs, mapToJobModel, transformJobsForSOLR };
+export { parseApiJobs, fetchJobsPage, mapToJobModel, transformJobsForSOLR };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main();

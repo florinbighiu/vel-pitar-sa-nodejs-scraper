@@ -281,4 +281,18 @@ describe('E2E: Full Scraping Pipeline', () => {
       expect(companyDoc.status).toBe('activ');
     }, 15000);
   });
+
+  describe('fetchJobsPage Pagination End', () => {
+    let index;
+
+    beforeAll(async () => {
+      index = await import('../../scraper/index.js');
+    });
+
+    it('should treat a page beyond the last as the end of pagination (WP 400)', async () => {
+      const result = await index.fetchJobsPage(9999);
+
+      expect(result.posts).toEqual([]);
+    }, 15000);
+  });
 });
