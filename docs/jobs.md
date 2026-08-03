@@ -10,11 +10,11 @@
 | Location | Râmnicu Vâlcea |
 | Website | [https://www.velpitar.ro](https://www.velpitar.ro) |
 | Careers | [https://velpitar.ro/cariere-vel-pitar/](https://velpitar.ro/cariere-vel-pitar/) |
-| Last Scraped | 2026-08-02 |
+| Last Scraped | 2026-08-03 |
 
 ## Current Job Listings (28)
 
-_Generated: 2026-08-02T07:59:13.975Z_
+_Generated: 2026-08-03T08:55:20.378Z_
 
 ### Șofer distributie – Brașov
 
